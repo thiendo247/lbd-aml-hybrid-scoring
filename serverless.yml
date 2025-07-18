@@ -1,0 +1,126 @@
+service: lbd-aml-hybrid-scoring
+
+frameworkVersion: '3'
+
+custom:
+  config: ${file(config/${self:provider.stage}.yml)}
+  pythonRequirements:
+    dockerizePip: false
+    slim: true
+    strip: false
+    layer:
+      name: ${self:service}-${self:provider.stage}-requirements
+      description: Python requirements layer
+      compatibleRuntimes:
+        - python3.10
+      retain: false
+
+  serverless-offline:
+    httpPort: 3000
+    host: localhost
+
+provider:
+  name: aws
+  runtime: python3.10
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  memorySize: ${self:custom.config.memory_size}
+  timeout: ${self:custom.config.api_timeout}
+
+  deploymentBucket:
+    name: ${self:custom.config.deployment_bucket}
+
+  environment:
+    STAGE: ${self:provider.stage}
+    LOG_LEVEL: ${self:custom.config.log_level}
+    S3_BUCKET: ${self:custom.config.s3_bucket}
+    MAX_FILE_SIZE: ${self:custom.config.max_file_size}
+    ENVIRONMENT: ${self:custom.config.lambda_env.ENVIRONMENT}
+    DEBUG_MODE: ${self:custom.config.lambda_env.DEBUG_MODE}
+    PROCESSING_MODE: ${self:custom.config.lambda_env.PROCESSING_MODE}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+            - s3:ListBucket
+          Resource:
+            - "arn:aws:s3:::${self:custom.config.s3_bucket}/*"
+            - "arn:aws:s3:::${self:custom.config.s3_bucket}"
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - comprehend:DetectEntities
+            - comprehend:DetectSentiment
+            - comprehend:DetectKeyPhrases
+            - comprehend:DetectDominantLanguage
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - sns:Publish
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            - ssm:GetParametersByPath
+            - ssm:PutParameter
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - bedrock:InvokeModel
+          Resource: "*"
+
+functions:
+  amlHybridScoring:
+    handler: lambda_function.lambda_handler
+    name: ${self:service}-${self:provider.stage}-handle
+    description: Lambda Hybrid Rule-Based Score and Bedrock enhancement
+    logRetentionInDays: 14
+    events:
+      - s3:
+          bucket: ${self:custom.config.s3_bucket}
+          event: s3:ObjectCreated:*
+          rules:
+            - prefix: ${self:custom.config.s3_input_prefix}
+            - suffix: .json
+
+plugins:
+  - serverless-python-requirements
+  - serverless-offline
+
+package:
+  patterns:
+    - '!node_modules/**'
+    - '!package*.json'
+    - '!serverless.yml'
+    - '!.git/**'
+    - '!.vscode/**'
+    - '!.idea/**'
+    - '!__pycache__/**'
+    - '!*.pyc'
+    - '!.pytest_cache/**'
+    - '!tests/**'
+    - '!.env'
+    - '!README.md'
+    - '!CHANGELOG.md'
+    - '!doc.md'
+    - '!config/dev.yml'
+    - 'lambda/'

@@ -1,0 +1,21 @@
+{
+  "name": "lbd-aml-hybrid-scoring",
+  "version": "1.0.0",
+  "description": "Lambda Function Hybrid Scoring",
+  "main": "lambda_function.py",
+  "scripts": {
+    "deploy": "serverless deploy",
+    "deploy:dev": "serverless deploy --stage dev",
+    "deploy:prod": "serverless deploy --stage prod",
+    "local": "serverless offline",
+    "logs": "serverless logs -f detectEntityLambda -t",
+    "remove": "serverless remove"
+  },
+  "devDependencies": {
+    "serverless": "^3.36.0",
+    "serverless-offline": "^13.9.0",
+    "serverless-python-requirements": "^6.1.2"
+  },
+  "author": "Do Nguyen Thien",
+  "license": "MIT"
+}
