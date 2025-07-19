@@ -692,59 +692,41 @@ Recommendation:
     def save_risk_results(self, risk_result: Dict):
         """Save risk scoring results with comprehensive error handling"""
         try:
-            # Save to DynamoDB
-            table = self.dynamodb.Table(self.risk_scores_table)
+            # Check if table exists first
+            try:
+                table = self.dynamodb.Table(self.risk_scores_table)
+                table.load()  # This will fail if table doesn't exist
+                logger.info(f"Table {self.risk_scores_table} exists and accessible")
+            except Exception as table_error:
+                logger.error(f"Table {self.risk_scores_table} not accessible: {str(table_error)}")
+                logger.warning("Skipping DynamoDB save - table not found")
+                return
 
             article_id = risk_result.get('article_id', 'unknown')
             timestamp = risk_result.get('processed_at', datetime.utcnow().isoformat())
 
-            # Create DynamoDB item - check if table uses pk/sk or different schema
-            try:
-                # First try with pk/sk structure
-                dynamodb_item = {
-                    'pk': f"ARTICLE#{article_id}",
-                    'sk': f"RISK_SCORE#{timestamp}",
-                    'article_id': article_id,
-                    'processed_date': timestamp[:10],  # YYYY-MM-DD for GSI
-                    'total_risk_score': risk_result['total_risk_score'],
-                    'risk_level': risk_result['risk_level'],
-                    'component_scores': risk_result['component_scores'],
-                    'risk_indicators': risk_result['risk_indicators'],
-                    'ai_explanation': risk_result.get('ai_explanation', ''),
-                    'source_metadata': risk_result['source_metadata'],
-                    's3_metadata': risk_result['s3_metadata'],
-                    'ttl': int((datetime.utcnow() + timedelta(days=2555)).timestamp())  # 7 years retention
-                }
+            # Create DynamoDB item with pk/sk structure
+            dynamodb_item = {
+                'pk': f"ARTICLE#{article_id}",
+                'sk': f"RISK_SCORE#{timestamp}",
+                'article_id': article_id,
+                'processed_date': timestamp[:10],  # YYYY-MM-DD for GSI
+                'total_risk_score': risk_result['total_risk_score'],
+                'risk_level': risk_result['risk_level'],
+                'component_scores': risk_result['component_scores'],
+                'risk_indicators': risk_result['risk_indicators'],
+                'ai_explanation': risk_result.get('ai_explanation', ''),
+                'source_metadata': risk_result['source_metadata'],
+                's3_metadata': risk_result['s3_metadata'],
+                'ttl': int((datetime.utcnow() + timedelta(days=2555)).timestamp())  # 7 years retention
+            }
 
-                # Convert float values to Decimal for DynamoDB
-                dynamodb_item = self.convert_floats_to_decimal(dynamodb_item)
+            # Convert float values to Decimal for DynamoDB
+            dynamodb_item = self.convert_floats_to_decimal(dynamodb_item)
 
-                table.put_item(Item=dynamodb_item)
-                logger.info(f"Successfully saved to DynamoDB with pk/sk: {article_id}")
-
-            except Exception as pk_sk_error:
-                # If pk/sk fails, try with timestamp as primary key
-                logger.warning(f"pk/sk structure failed, trying timestamp structure: {str(pk_sk_error)}")
-
-                dynamodb_item_alt = {
-                    'timestamp': timestamp,
-                    'article_id': article_id,
-                    'processed_date': timestamp[:10],
-                    'total_risk_score': risk_result['total_risk_score'],
-                    'risk_level': risk_result['risk_level'],
-                    'component_scores': risk_result['component_scores'],
-                    'risk_indicators': risk_result['risk_indicators'],
-                    'ai_explanation': risk_result.get('ai_explanation', ''),
-                    'source_metadata': risk_result['source_metadata'],
-                    's3_metadata': risk_result['s3_metadata'],
-                    'ttl': int((datetime.utcnow() + timedelta(days=2555)).timestamp())
-                }
-
-                # Convert float values to Decimal for DynamoDB
-                dynamodb_item_alt = self.convert_floats_to_decimal(dynamodb_item_alt)
-
-                table.put_item(Item=dynamodb_item_alt)
-                logger.info(f"Successfully saved to DynamoDB with timestamp: {article_id}")
+            # Try to save
+            table.put_item(Item=dynamodb_item)
+            logger.info(f"Successfully saved to DynamoDB: {article_id}")
 
             # Save detailed results to S3 (if bucket configured)
             if self.output_bucket:
@@ -765,7 +747,6 @@ Recommendation:
         except Exception as e:
             logger.error(f"Error saving risk results: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
-            # Don't raise exception to continue processing other records
             logger.warning("Continuing without saving to DynamoDB")
 
     def convert_floats_to_decimal(self, obj):
